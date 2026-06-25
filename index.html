@@ -102,6 +102,7 @@ h2{color:var(--indigo-dark);margin:0 0 6px;font-size:25px;letter-spacing:-.5px;}
     <div class="result-content" id="resultContent"></div>
     <div class="action-btns" id="actionBtns">
       <button class="btn btn-outline" id="copyBtn">복사하기</button>
+      <button class="btn btn-outline" id="rescanBtn" style="display:none; background:#eef0ff;">🔄 다시 스캔</button>
       <a href="#" target="_blank" class="btn btn-primary" id="openLinkBtn" style="display:none;">링크 열기</a>
     </div>
   </div>
@@ -124,12 +125,11 @@ const resultContainer = document.getElementById('resultContainer');
 const resultContent = document.getElementById('resultContent');
 const copyBtn = document.getElementById('copyBtn');
 const openLinkBtn = document.getElementById('openLinkBtn');
+const rescanBtn = document.getElementById('rescanBtn');
 
 let currentMode = 'camera';
 let requestAnimationFrameId = null;
 let currentScanData = "";
-
-// 성능 최적화: 마지막으로 스캔을 시도한 시간 (스로틀링 용도)
 let lastScanTime = 0;
 
 startCamera();
@@ -181,6 +181,12 @@ copyBtn.addEventListener('click', () => {
   });
 });
 
+// 다시 스캔 버튼 클릭 이벤트
+rescanBtn.addEventListener('click', () => {
+  resetResult();
+  startCamera();
+});
+
 function setStatus(text, isLoading = false) {
   statusMsg.innerHTML = (isLoading ? '<span class="spinner"></span>' : '') + text;
 }
@@ -190,12 +196,12 @@ function resetResult() {
   currentScanData = "";
   canvas.clearRect(0, 0, canvasElement.width, canvasElement.height);
   scanGuide.style.borderColor = "rgba(255, 255, 255, 0.4)";
+  rescanBtn.style.display = "none"; // 재촬영 버튼 숨김
 }
 
 function startCamera() {
   setStatus("카메라 스트림을 준비 중입니다...", true);
   
-  // 💡 개선: 화질을 1080p 이상으로 상향 요청하여 픽셀을 명확하게 확보
   const constraints = {
     video: { 
       facingMode: "environment",
@@ -220,10 +226,12 @@ function startCamera() {
 
 function stopCamera() {
   if (video.srcObject) {
+    // 카메라 트랙을 모두 찾아 중지시킵니다. (카메라 꺼짐)
     video.srcObject.getTracks().forEach(track => track.stop());
   }
   if (requestAnimationFrameId) {
     cancelAnimationFrame(requestAnimationFrameId);
+    requestAnimationFrameId = null;
   }
 }
 
@@ -234,12 +242,10 @@ function tick(time) {
     canvasElement.height = video.videoHeight;
     canvasElement.width = video.videoWidth;
     
-    // 💡 개선: 캔버스에 비디오를 그릴 때 대비(Contrast)를 120%로 높여 흑백을 뚜렷하게 만듦
     canvas.filter = 'contrast(120%)';
     canvas.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
-    canvas.filter = 'none'; // 가이드라인 등 UI용 초기화
+    canvas.filter = 'none';
     
-    // 💡 개선: 매 프레임 연산에 따른 모바일 기기 발열 방지 및 오토포커스 시간 확보 (150ms마다 스캔)
     if (!time || time - lastScanTime > 150) {
       var imageData = canvas.getImageData(0, 0, canvasElement.width, canvasElement.height);
       
@@ -263,7 +269,11 @@ function tick(time) {
       lastScanTime = time;
     }
   }
-  requestAnimationFrameId = requestAnimationFrame(tick);
+  
+  // 카메라가 켜져 있을 때만 계속 프레임을 갱신하도록 수정
+  if (video.srcObject && video.srcObject.active) {
+    requestAnimationFrameId = requestAnimationFrame(tick);
+  }
 }
 
 function analyzeUploadedImage(imgElement) {
@@ -282,7 +292,6 @@ function analyzeUploadedImage(imgElement) {
   tempCanvas.width = width;
   tempCanvas.height = height;
 
-  // 업로드된 이미지도 대비를 높여 전처리 적용
   tempCtx.filter = 'contrast(120%)';
   tempCtx.drawImage(imgElement, 0, 0, width, height);
   tempCtx.filter = 'none';
@@ -313,7 +322,6 @@ function drawLine(begin, end, color) {
 
 function processResult(data) {
   currentScanData = data;
-  setStatus("✅ 스캔 성공!");
   
   const urlRegex = /^(https?:\/\/[^\s]+)/g;
   const isUrl = urlRegex.test(data);
@@ -329,6 +337,16 @@ function processResult(data) {
   
   resultContainer.style.display = "block";
   resultContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+  // 💡 추가된 로직: 카메라 모드일 경우 카메라를 즉시 종료하고 재촬영 버튼 표시
+  if (currentMode === 'camera') {
+    stopCamera();
+    setStatus("✅ 스캔 성공! (카메라가 일시 정지되었습니다)");
+    rescanBtn.style.display = "inline-block";
+  } else {
+    setStatus("✅ 스캔 성공!");
+    rescanBtn.style.display = "none";
+  }
 }
 </script>
 </body>
