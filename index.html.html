@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>QR 코드 스마트 리더기 (인식률 강화 버전)</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<style>
+:root{--indigo:#4f46e5;--indigo-dark:#1e1b4b;--bg:#eef0f8;--card:#fff;--muted:#6b7280;--line:#eceef5;--success:#10b981;}
+*{box-sizing:border-box}
+body{font-family:'Pretendard','Malgun Gothic',Arial,sans-serif;margin:0;min-height:100vh;
+  background:radial-gradient(1200px 600px at 50% -10%,#dfe3f7 0%,var(--bg) 55%);
+  color:#222;display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;}
+#wrapper{max-width:640px;width:100%;background:var(--card);padding:34px 30px 40px;
+  border-radius:24px;box-shadow:0 20px 50px rgba(30,27,75,0.10);text-align:center;}
+.badge{display:inline-block;font-size:12px;font-weight:700;color:var(--indigo);
+  background:#eef0ff;padding:6px 14px;border-radius:999px;margin-bottom:14px;}
+h2{color:var(--indigo-dark);margin:0 0 6px;font-size:25px;letter-spacing:-.5px;}
+.sub-title{color:var(--muted);font-size:13.5px;margin-bottom:26px;line-height:1.5;}
+
+.mode-tabs{display:flex;gap:8px;margin-bottom:20px;justify-content:center;}
+.mode-tab{flex:1;max-width:160px;padding:12px 0;border-radius:12px;font-size:14px;font-weight:700;
+  cursor:pointer;border:1px solid var(--line);background:#fafbff;color:var(--muted);transition:.2s;}
+.mode-tab.active{background:var(--indigo);color:#fff;border-color:var(--indigo);box-shadow:0 4px 12px rgba(79,70,229,0.3);}
+
+.uploader{display:none;cursor:pointer;border:2px dashed #c7cbe6;border-radius:16px;
+  padding:36px 18px;transition:.2s;background:#fafbff;margin-bottom:8px;}
+.uploader.active{display:block;}
+.uploader:hover{border-color:var(--indigo);background:#f4f5ff;}
+.uploader strong{color:var(--indigo);display:block;font-size:16px;margin-bottom:6px;}
+.uploader span{font-size:13px;color:var(--muted);}
+#imageLoader{display:none;}
+
+.view-box{position:relative;width:100%;max-width:440px;margin:0 auto;border-radius:16px;overflow:hidden;background:#000;display:none;box-shadow:0 10px 25px rgba(0,0,0,0.1);}
+.view-box.active{display:block;}
+#cameraStream{width:100%;display:block;object-fit:cover;}
+#scanCanvas{position:absolute;top:0;left:0;width:100%;height:100%;z-index:2;}
+#uploadedPreview{width:100%;display:none;border-radius:16px;}
+
+.status-msg{font-size:14px;color:var(--indigo);font-weight:700;margin:16px 0;min-height:20px;}
+.spinner{width:16px;height:16px;border:2.5px solid #d7daf2;border-top-color:var(--indigo);
+  border-radius:50%;display:inline-block;vertical-align:-3px;margin-right:6px;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+#resultContainer{margin-top:20px;padding:24px;border-radius:18px;display:none;
+  background:#f8f9fd;border:1px solid var(--indigo);box-shadow:0 10px 30px rgba(79,70,229,0.15);animation:fade .4s ease;text-align:left;}
+@keyframes fade{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
+.result-title{font-size:18px;font-weight:800;color:var(--indigo-dark);margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.result-title::before{content:'✨';font-size:20px;}
+.result-content{font-size:15px;line-height:1.6;color:#111;background:#fff;padding:16px;border-radius:12px;border:1px solid var(--line);word-break:break-all;}
+.result-content a{color:var(--indigo);font-weight:700;text-decoration:none;border-bottom:1px solid var(--indigo);padding-bottom:1px;}
+.result-content a:hover{color:var(--indigo-dark);}
+
+.action-btns{display:flex;gap:10px;margin-top:16px;}
+.btn{flex:1;padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;transition:.2s;text-align:center;text-decoration:none;display:inline-block;}
+.btn-primary{background:var(--indigo);color:#fff;box-shadow:0 4px 12px rgba(79,70,229,0.3);}
+.btn-primary:hover{background:var(--indigo-dark);}
+.btn-outline{background:#fff;color:var(--indigo);border:1px solid var(--indigo);}
+.btn-outline:hover{background:#f4f5ff;}
+
+/* 인식 영역 가이드 선 */
+.scan-guide {
+  position: absolute; top: 15%; left: 15%; width: 70%; height: 70%;
+  border: 2px solid rgba(255, 255, 255, 0.4); border-radius: 12px;
+  box-shadow: 0 0 0 4000px rgba(0, 0, 0, 0.4);
+  pointer-events: none; z-index: 1;
+}
+</style>
+</head>
+<body>
+
+<div id="wrapper">
+  <div class="badge">FAST & SMART QR SCANNER</div>
+  <h2>📷 스마트 QR 리더기</h2>
+  <div class="sub-title">카메라를 비추거나 QR 코드가 포함된 사진을 업로드하면<br/>즉시 내용을 스캔하여 링크나 텍스트를 제공합니다.</div>
+
+  <div class="mode-tabs">
+    <button class="mode-tab active" id="tabCamera">📹 카메라 스캔</button>
+    <button class="mode-tab" id="tabUpload">📁 사진 업로드</button>
+  </div>
+
+  <div class="view-box active" id="cameraBox">
+    <video id="cameraStream" playsinline></video>
+    <canvas id="scanCanvas"></canvas>
+    <div class="scan-guide" id="scanGuide"></div>
+  </div>
+
+  <label class="uploader" for="imageLoader" id="uploadBox">
+    <strong>🖼️ 갤러리에서 QR 이미지 선택</strong>
+    <span>클릭하여 스마트폰이나 PC의 이미지를 첨부하세요.</span>
+  </label>
+  <input type="file" id="imageLoader" accept="image/*" />
+  
+  <div class="view-box" id="previewBox" style="background:transparent; box-shadow:none;">
+    <img id="uploadedPreview" alt="업로드된 이미지" />
+  </div>
+
+  <div class="status-msg" id="statusMsg"><span class="spinner"></span>카메라 권한을 확인하고 있습니다...</div>
+
+  <div id="resultContainer">
+    <div class="result-title">스캔 완료!</div>
+    <div class="result-content" id="resultContent"></div>
+    <div class="action-btns" id="actionBtns">
+      <button class="btn btn-outline" id="copyBtn">복사하기</button>
+      <a href="#" target="_blank" class="btn btn-primary" id="openLinkBtn" style="display:none;">링크 열기</a>
+    </div>
+  </div>
+</div>
+
+<script>
+const tabCamera = document.getElementById('tabCamera');
+const tabUpload = document.getElementById('tabUpload');
+const cameraBox = document.getElementById('cameraBox');
+const uploadBox = document.getElementById('uploadBox');
+const previewBox = document.getElementById('previewBox');
+const video = document.getElementById('cameraStream');
+const canvasElement = document.getElementById('scanCanvas');
+const scanGuide = document.getElementById('scanGuide');
+const canvas = canvasElement.getContext('2d', { willReadFrequently: true });
+const statusMsg = document.getElementById('statusMsg');
+const imageLoader = document.getElementById('imageLoader');
+const uploadedPreview = document.getElementById('uploadedPreview');
+const resultContainer = document.getElementById('resultContainer');
+const resultContent = document.getElementById('resultContent');
+const copyBtn = document.getElementById('copyBtn');
+const openLinkBtn = document.getElementById('openLinkBtn');
+
+let currentMode = 'camera';
+let requestAnimationFrameId = null;
+let currentScanData = "";
+
+// 성능 최적화: 마지막으로 스캔을 시도한 시간 (스로틀링 용도)
+let lastScanTime = 0;
+
+startCamera();
+
+tabCamera.addEventListener('click', () => {
+  if(currentMode === 'camera') return;
+  currentMode = 'camera';
+  tabCamera.classList.add('active'); tabUpload.classList.remove('active');
+  uploadBox.classList.remove('active'); previewBox.classList.remove('active');
+  cameraBox.classList.add('active');
+  resetResult(); startCamera();
+});
+
+tabUpload.addEventListener('click', () => {
+  if(currentMode === 'upload') return;
+  currentMode = 'upload';
+  tabUpload.classList.add('active'); tabCamera.classList.remove('active');
+  cameraBox.classList.remove('active'); uploadBox.classList.add('active');
+  stopCamera(); resetResult();
+  setStatus("업로드할 이미지를 선택해주세요.");
+});
+
+imageLoader.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  
+  setStatus("사진 분석 중...", true);
+  resetResult();
+  
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    uploadedPreview.src = event.target.result;
+    uploadedPreview.style.display = "block";
+    previewBox.classList.add('active');
+    
+    uploadedPreview.onload = () => {
+      analyzeUploadedImage(uploadedPreview);
+    };
+  };
+  reader.readAsDataURL(file);
+});
+
+copyBtn.addEventListener('click', () => {
+  if(!currentScanData) return;
+  navigator.clipboard.writeText(currentScanData).then(() => {
+    const originalText = copyBtn.innerText;
+    copyBtn.innerText = "복사 완료! ✔️";
+    setTimeout(() => { copyBtn.innerText = originalText; }, 2000);
+  });
+});
+
+function setStatus(text, isLoading = false) {
+  statusMsg.innerHTML = (isLoading ? '<span class="spinner"></span>' : '') + text;
+}
+
+function resetResult() {
+  resultContainer.style.display = "none";
+  currentScanData = "";
+  canvas.clearRect(0, 0, canvasElement.width, canvasElement.height);
+  scanGuide.style.borderColor = "rgba(255, 255, 255, 0.4)";
+}
+
+function startCamera() {
+  setStatus("카메라 스트림을 준비 중입니다...", true);
+  
+  // 💡 개선: 화질을 1080p 이상으로 상향 요청하여 픽셀을 명확하게 확보
+  const constraints = {
+    video: { 
+      facingMode: "environment",
+      width: { ideal: 1920, min: 1280 },
+      height: { ideal: 1080, min: 720 }
+    }
+  };
+
+  navigator.mediaDevices.getUserMedia(constraints)
+    .then(function(stream) {
+      video.srcObject = stream;
+      video.setAttribute("playsinline", true);
+      video.play();
+      requestAnimationFrameId = requestAnimationFrame(tick);
+      setStatus("밝은 박스 영역 안에 QR 코드를 맞춰주세요.");
+    })
+    .catch(function(err) {
+      console.error("카메라 에러:", err);
+      setStatus("❌ 카메라에 접근할 수 없거나 기기에서 지원하지 않습니다.");
+    });
+}
+
+function stopCamera() {
+  if (video.srcObject) {
+    video.srcObject.getTracks().forEach(track => track.stop());
+  }
+  if (requestAnimationFrameId) {
+    cancelAnimationFrame(requestAnimationFrameId);
+  }
+}
+
+function tick(time) {
+  if (currentMode !== 'camera') return;
+  
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    canvasElement.height = video.videoHeight;
+    canvasElement.width = video.videoWidth;
+    
+    // 💡 개선: 캔버스에 비디오를 그릴 때 대비(Contrast)를 120%로 높여 흑백을 뚜렷하게 만듦
+    canvas.filter = 'contrast(120%)';
+    canvas.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
+    canvas.filter = 'none'; // 가이드라인 등 UI용 초기화
+    
+    // 💡 개선: 매 프레임 연산에 따른 모바일 기기 발열 방지 및 오토포커스 시간 확보 (150ms마다 스캔)
+    if (!time || time - lastScanTime > 150) {
+      var imageData = canvas.getImageData(0, 0, canvasElement.width, canvasElement.height);
+      
+      var code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "attemptBoth", 
+      });
+      
+      if (code) {
+        scanGuide.style.borderColor = "var(--success)";
+        drawLine(code.location.topLeftCorner, code.location.topRightCorner, "var(--success)");
+        drawLine(code.location.topRightCorner, code.location.bottomRightCorner, "var(--success)");
+        drawLine(code.location.bottomRightCorner, code.location.bottomLeftCorner, "var(--success)");
+        drawLine(code.location.bottomLeftCorner, code.location.topLeftCorner, "var(--success)");
+        
+        if(currentScanData !== code.data) {
+          processResult(code.data);
+        }
+      } else {
+        scanGuide.style.borderColor = "rgba(255, 255, 255, 0.4)";
+      }
+      lastScanTime = time;
+    }
+  }
+  requestAnimationFrameId = requestAnimationFrame(tick);
+}
+
+function analyzeUploadedImage(imgElement) {
+  const tempCanvas = document.createElement('canvas');
+  const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+  
+  const MAX_WIDTH = 1200;
+  let width = imgElement.naturalWidth;
+  let height = imgElement.naturalHeight;
+  
+  if (width > MAX_WIDTH) {
+    height = Math.round(height * MAX_WIDTH / width);
+    width = MAX_WIDTH;
+  }
+  
+  tempCanvas.width = width;
+  tempCanvas.height = height;
+
+  // 업로드된 이미지도 대비를 높여 전처리 적용
+  tempCtx.filter = 'contrast(120%)';
+  tempCtx.drawImage(imgElement, 0, 0, width, height);
+  tempCtx.filter = 'none';
+  
+  const imageData = tempCtx.getImageData(0, 0, width, height);
+  
+  const code = jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: "attemptBoth",
+  });
+  
+  if (code) {
+    processResult(code.data);
+    setStatus("✅ QR 코드를 성공적으로 인식했습니다.");
+  } else {
+    setStatus("❌ QR 코드를 찾을 수 없습니다. 조금 더 선명한 사진을 올려주세요.");
+    resultContainer.style.display = "none";
+  }
+}
+
+function drawLine(begin, end, color) {
+  canvas.beginPath();
+  canvas.moveTo(begin.x, begin.y);
+  canvas.lineTo(end.x, end.y);
+  canvas.lineWidth = 5;
+  canvas.strokeStyle = color;
+  canvas.stroke();
+}
+
+function processResult(data) {
+  currentScanData = data;
+  setStatus("✅ 스캔 성공!");
+  
+  const urlRegex = /^(https?:\/\/[^\s]+)/g;
+  const isUrl = urlRegex.test(data);
+  
+  if(isUrl) {
+    resultContent.innerHTML = `<a href="${data}" target="_blank">${data}</a>`;
+    openLinkBtn.href = data;
+    openLinkBtn.style.display = "inline-block";
+  } else {
+    resultContent.innerHTML = data.replace(/\n/g, '<br>');
+    openLinkBtn.style.display = "none";
+  }
+  
+  resultContainer.style.display = "block";
+  resultContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+</script>
+</body>
+</html>
